@@ -7,10 +7,6 @@ public class CANUtils {
         return false;
     }
 
-    public boolean discharging() {
-        return false;
-    }
-
     public boolean voltageOutOfRange() {
         return false;
     }
@@ -34,7 +30,7 @@ public class CANUtils {
         // Temperature values outside the permitted range  EV.7.5.2  
         // Missing or interrupted voltage or temperature measurements 
         // A fault in the BMS 
-        return missedMeasurement() || overheating() || overcurrent() || voltageOutOfRange() || discharging() || pluggedIn();
+        return missedMeasurement() || overheating() || overcurrent() || voltageOutOfRange();
     }
 
     public boolean brakePressed() {
@@ -50,6 +46,14 @@ public class CANUtils {
     }
 
     public boolean glvEnergized() {
+        return false;
+    }
+
+    public boolean tractiveDisconnected() {
+        return false;
+    }
+
+    public boolean masterSwitchesOn() {
         return false;
     }
 }

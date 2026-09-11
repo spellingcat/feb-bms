@@ -13,9 +13,8 @@ public class StateMachine {
         CONSTANT_CURRENT, // ??-90% 
         CONSTANT_VOLTAGE, // 90-100%
 
-        DISCHARGING,
         LOW_BATTERY, // ??
-        LOW_VOLTAGE, // EV.4.4.1.b
+        LOW_VOLTAGE_ONLY, // EV.4.4.1.b
 
         SHUTDOWN,
         FAULT
@@ -33,7 +32,7 @@ public class StateMachine {
         }
     }
     
-    private static State state;
+    private static State state = State.IDLE;
     private CANUtils canUtils;
     // private State prevState;
 
@@ -44,22 +43,30 @@ public class StateMachine {
     }
 
     private void addTransitions() {
-        // normal charging sequence
+        // activation sequence
+        bindTransition(State.IDLE, State.LV_ACTIVATION, () -> canUtils.masterSwitchesOn());
+        bindTransition(State.LV_ACTIVATION, State.TRACTIVE_ACTIVATION, () -> canUtils.shutdownClosed() && canUtils.glvEnergized());
+        bindTransition(State.TRACTIVE_ACTIVATION, State.READY_TO_DRIVE, () -> canUtils.brakePressed() && canUtils.driverButtonPressed());
+        // i don't know how to get out of ready to drive
+
+        bindTransition(State.IDLE, State.LOW_BATTERY, () -> canUtils.getPercentage() < 20);
+        bindTransition(State.IDLE, State.CONSTANT_CURRENT, () -> canUtils.getPercentage() >= 20 && canUtils.getPercentage() < 80 && canUtils.pluggedIn());
+        bindTransition(State.IDLE, State.CONSTANT_VOLTAGE, () -> canUtils.getPercentage() >= 80 && canUtils.pluggedIn());
+
+        // full charging sequence
         bindTransition(State.LOW_BATTERY, State.PRE_CHARGING, () -> canUtils.pluggedIn());
-        bindTransition(State.PRE_CHARGING, State.CONSTANT_CURRENT, () -> (canUtils.getPercentage() > 20)); // add some debounce to filter noise
-        bindTransition(State.CONSTANT_CURRENT, State.CONSTANT_VOLTAGE, () -> (canUtils.getPercentage() > 80));
+        bindTransition(State.PRE_CHARGING, State.CONSTANT_CURRENT, () -> (canUtils.getPercentage() >= 20)); // add some debounce to filter noise
+        bindTransition(State.CONSTANT_CURRENT, State.CONSTANT_VOLTAGE, () -> (canUtils.getPercentage() >= 80));
         
         // exit charging early
         bindTransition(State.PRE_CHARGING, State.LOW_BATTERY, () -> !canUtils.pluggedIn());
         bindTransition(State.CONSTANT_CURRENT, State.IDLE, () -> !canUtils.pluggedIn());
         bindTransition(State.CONSTANT_VOLTAGE, State.IDLE, () -> !canUtils.pluggedIn());
 
-        bindTransition(State.IDLE, State.DISCHARGING, () -> canUtils.discharging());
+        bindTransition(State.FAULT, () -> canUtils.fault()); // i think this state is "terminal"- says you need to reset everything to get out of this state
 
-        bindTransition(State.LV_ACTIVATION, State.TRACTIVE_ACTIVATION, () -> canUtils.shutdownClosed() && canUtils.glvEnergized());
-        bindTransition(State.TRACTIVE_ACTIVATION, State.READY_TO_DRIVE, () -> canUtils.brakePressed() && canUtils.driverButtonPressed());
-
-        bindTransition(State.FAULT, () -> canUtils.fault());
+        bindTransition(State.LOW_VOLTAGE_ONLY, () -> canUtils.tractiveDisconnected()); // i don't really know how this state works
+        bindTransition(State.LOW_VOLTAGE_ONLY, State.IDLE, () -> !canUtils.tractiveDisconnected());
     }
 
     private void addCommands() {
@@ -72,9 +79,8 @@ public class StateMachine {
         bindCommands(State.CONSTANT_CURRENT); // ??-90% 
         bindCommands(State.CONSTANT_VOLTAGE); // 90-100%
 
-        bindCommands(State.DISCHARGING);
-        bindCommands(State.LOW_BATTERY); // ??
-        bindCommands(State.LOW_VOLTAGE); // EV.4.4.1.b
+        bindCommands(State.LOW_BATTERY); // ?? shouldn't be running probably
+        bindCommands(State.LOW_VOLTAGE_ONLY); // EV.4.4.1.b
         bindCommands(State.SHUTDOWN);
         bindCommands(State.FAULT, () -> openShutdownCircuit(), () -> enableIndicatorLights());
     }
@@ -91,7 +97,6 @@ public class StateMachine {
 
     private void bindTransition(State end, BooleanSupplier transition) {
         if (transition.getAsBoolean()) changeStateTo(end);
-
     }
 
     private void changeStateTo(State nextState) {
