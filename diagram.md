@@ -2,22 +2,30 @@
 %%{init: {"flowchart": {"defaultRenderer": "elk"}} }%%
 graph TD;
 
-LOW_BATTERY --> PRE_CHARGING
+IDLE --> |masterSwitchesOn| LV_ACTIVATION
 
-PRE_CHARGING --> CONSTANT_CURRENT
+LV_ACTIVATION --> |shutdownClosed && glvEnergized| TRACTIVE_ACTIVATION
 
-CONSTANT_CURRENT --> CONSTANT_VOLTAGE
+TRACTIVE_ACTIVATION --> |brakePressed && driverButtonPressed| READY_TO_DRIVE
 
-PRE_CHARGING --> LOW_BATTERY
+IDLE --> |batteryPercentage < 20| LOW_BATTERY
 
-CONSTANT_CURRENT --> IDLE
+IDLE --> |20 <= batteryPercentage < 90 && pluggedIn| CONSTANT_CURRENT
 
-CONSTANT_VOLTAGE --> IDLE
+IDLE --> |batteryPercentage > 90 && pluggedIn| CONSTANT_VOLTAGE
 
-IDLE --> LOW_BATTERY
+LOW_BATTERY --> |pluggedIn| PRE_CHARGING
 
-IDLE --> DISCHARGING
+PRE_CHARGING --> |batteryPercentage >= 20| CONSTANT_CURRENT
 
-LV_ACTIVATION --> TRACTIVE_ACTIVATION
+CONSTANT_CURRENT --> |batteryPercentage >= 90| CONSTANT_VOLTAGE
 
-TRACTIVE_ACTIVATION --> READY_TO_DRIVE
+PRE_CHARGING --> |!pluggedIn| LOW_BATTERY
+
+CONSTANT_CURRENT --> |!pluggedIn| IDLE
+
+CONSTANT_VOLTAGE --> |!pluggedIn| IDLE
+
+LOW_VOLTAGE_ONLY --> |!tractiveConnected| IDLE
+
+FAULT

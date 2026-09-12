@@ -16,7 +16,6 @@ public class StateMachine {
         LOW_BATTERY, // ??
         LOW_VOLTAGE_ONLY, // EV.4.4.1.b
 
-        SHUTDOWN,
         FAULT
 
         ;
@@ -46,17 +45,20 @@ public class StateMachine {
         // activation sequence
         bindTransition(State.IDLE, State.LV_ACTIVATION, () -> canUtils.masterSwitchesOn());
         bindTransition(State.LV_ACTIVATION, State.TRACTIVE_ACTIVATION, () -> canUtils.shutdownClosed() && canUtils.glvEnergized());
+        //TODO add way to bail out of tractive and LV activation
         bindTransition(State.TRACTIVE_ACTIVATION, State.READY_TO_DRIVE, () -> canUtils.brakePressed() && canUtils.driverButtonPressed());
         // i don't know how to get out of ready to drive
 
         bindTransition(State.IDLE, State.LOW_BATTERY, () -> canUtils.getPercentage() < 20);
-        bindTransition(State.IDLE, State.CONSTANT_CURRENT, () -> canUtils.getPercentage() >= 20 && canUtils.getPercentage() < 80 && canUtils.pluggedIn());
-        bindTransition(State.IDLE, State.CONSTANT_VOLTAGE, () -> canUtils.getPercentage() >= 80 && canUtils.pluggedIn());
+        
+        // no IDLE -> PRE_CHARGING because it'll go to LOW_BATTERY first
+        bindTransition(State.IDLE, State.CONSTANT_CURRENT, () -> canUtils.getPercentage() >= 20 && canUtils.getPercentage() < 90 && canUtils.pluggedIn());
+        bindTransition(State.IDLE, State.CONSTANT_VOLTAGE, () -> canUtils.getPercentage() >= 90 && canUtils.pluggedIn());
 
         // full charging sequence
         bindTransition(State.LOW_BATTERY, State.PRE_CHARGING, () -> canUtils.pluggedIn());
         bindTransition(State.PRE_CHARGING, State.CONSTANT_CURRENT, () -> (canUtils.getPercentage() >= 20)); // add some debounce to filter noise
-        bindTransition(State.CONSTANT_CURRENT, State.CONSTANT_VOLTAGE, () -> (canUtils.getPercentage() >= 80));
+        bindTransition(State.CONSTANT_CURRENT, State.CONSTANT_VOLTAGE, () -> (canUtils.getPercentage() >= 90));
         
         // exit charging early
         bindTransition(State.PRE_CHARGING, State.LOW_BATTERY, () -> !canUtils.pluggedIn());
@@ -65,25 +67,39 @@ public class StateMachine {
 
         bindTransition(State.FAULT, () -> canUtils.fault()); // i think this state is "terminal"- says you need to reset everything to get out of this state
 
-        bindTransition(State.LOW_VOLTAGE_ONLY, () -> canUtils.tractiveDisconnected()); // i don't really know how this state works
-        bindTransition(State.LOW_VOLTAGE_ONLY, State.IDLE, () -> !canUtils.tractiveDisconnected());
+        bindTransition(State.LOW_VOLTAGE_ONLY, () -> !canUtils.tractiveDisconnected()); // i don't really know how this state works
+        bindTransition(State.LOW_VOLTAGE_ONLY, State.IDLE, () -> canUtils.tractiveDisconnected());
     }
 
     private void addCommands() {
+        // i'm not super sure of all the things that need to happen during these states but I've listed what I can find from the rulebook
         bindCommands(State.IDLE);
-        bindCommands(State.LV_ACTIVATION);
-        bindCommands(State.TRACTIVE_ACTIVATION);
-        bindCommands(State.READY_TO_DRIVE, () -> makeSound());
 
-        bindCommands(State.PRE_CHARGING); // 0-??% 20?
-        bindCommands(State.CONSTANT_CURRENT); // ??-90% 
-        bindCommands(State.CONSTANT_VOLTAGE); // 90-100%
+        bindCommands(State.LV_ACTIVATION, () -> activateLV());
+        bindCommands(State.TRACTIVE_ACTIVATION, () -> activateTractive());
+        bindCommands(State.READY_TO_DRIVE, () -> makeSound(), () -> drive()); // should be reading and responding to driver inputs like steering, pedals. Also has to make a sound
 
-        bindCommands(State.LOW_BATTERY); // ?? shouldn't be running probably
-        bindCommands(State.LOW_VOLTAGE_ONLY); // EV.4.4.1.b
-        bindCommands(State.SHUTDOWN);
+        bindCommands(State.PRE_CHARGING, () -> preCharge()); // first phase of charging from 0-20%
+        bindCommands(State.CONSTANT_CURRENT, () -> chargeConstantCurrent()); // second phase of charging from 20-90%
+        bindCommands(State.CONSTANT_VOLTAGE, () -> chargeConstantVoltage()); // final phase of charging from 90-100%. Closes second IR
+
+        bindCommands(State.LOW_BATTERY); // battery is below 20% (or some threshold) and is not plugged in- car should not be running as to not damage the battery
+        bindCommands(State.LOW_VOLTAGE_ONLY); // EV.4.4.1.b - when tractive battery is removed. I imagine it would just not call anything that requires it
+
         bindCommands(State.FAULT, () -> openShutdownCircuit(), () -> enableIndicatorLights());
     }
+
+    private void preCharge() {}
+
+    private void chargeConstantCurrent() {}
+
+    private void chargeConstantVoltage() {}
+
+    private void activateLV() {}
+
+    private void activateTractive() {}
+
+    private void drive() {}
 
     private void makeSound() {}
 
